@@ -1,0 +1,84 @@
+from airflow import DAG
+from airflow.providers.apache.hdfs.hooks.webhdfs import WebHDFSHook
+from airflow.operators.python import PythonOperator
+from airflow.sensors.python import PythonSensor
+from datetime import datetime, timedelta
+import re
+
+DATE = '08-09-2026'
+DATE_COMPACT = '08092026'
+EXPECTED_COUNT = 32
+
+# Matches filenames containing 08092026 and ending in .log
+LOG_PATTERN = re.compile(rf'.*{DATE_COMPACT}.*\.log$')
+
+
+def _list_files(client, root_path):
+    files = {}
+    for dirpath, _, filenames in client.walk(root_path):
+        for fname in filenames:
+            if not LOG_PATTERN.match(fname):
+                continue
+            full_path = f"{dirpath}/{fname}"
+            status = client.status(full_path)
+            if status.get('type') == 'FILE':
+                rel_path = full_path.removeprefix(root_path + '/')
+                files[rel_path] = status['length']
+    return files
+
+
+# ── Sensor: poke every 5 min until 32 .log files exist ──
+def check_32_files(**context):
+    hook = WebHDFSHook(webhdfs_conn_id='HDFS')
+    client = hook.get_conn()
+    root_path = f'/CONTROL/{DATE}'
+
+    files = _list_files(client, root_path)
+    count = len(files)
+    print(f"Poke: found {count}/{EXPECTED_COUNT} .log files in {root_path}")
+
+    return count == EXPECTED_COUNT
+
+
+# ── Task: read all 32 .log files ──
+def read_control_files(**context):
+    hook = WebHDFSHook(webhdfs_conn_id='HDFS')
+    client = hook.get_conn()
+    root_path = f'/CONTROL/{DATE}'
+
+    files = _list_files(client, root_path)
+    print(f"Reading {len(files)} .log files...")
+
+    contents = {}
+    for rel_path in files:
+        full_path = f"{root_path}/{rel_path}"
+        with client.open(full_path, 'r') as f:
+            contents[rel_path] = f.read()
+        print(f"  ✓ {rel_path} ({len(contents[rel_path])} chars)")
+
+    print(f"Done: {len(contents)} files read.")
+    return contents
+
+
+with DAG(
+    dag_id='file_transfer_dag',
+    schedule=None,
+    catchup=False,
+    start_date=datetime(2026, 9, 11),
+) as dag:
+
+    wait_for_files = PythonSensor(
+        task_id='wait_for_32_files',
+        python_callable=check_32_files,
+        poke_interval=timedelta(minutes=5),
+        mode='reschedule',
+        timeout=timedelta(hours=12),
+        retries=0,
+    )
+
+    read_task = PythonOperator(
+        task_id='read_control_files',
+        python_callable=read_control_files,
+    )
+
+    wait_for_files >> read_task   

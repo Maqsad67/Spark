@@ -1,0 +1,114 @@
+apiVersion: sparkoperator.k8s.io/v1beta2
+kind: SparkApplication
+metadata:
+  name: Difference-spark-operator-{{ ti.xcom_pull(task_ids='bootstrap_process.resolve_process_run_id',key='process_context')['process_run_id']}}
+  namespace: "{{ var.value.get('fincore_namespace', 'cbops') }}"
+spec:
+  type: Python
+  mode: cluster
+  image: "{{ var.value.get('fincore_spark_image_name', 'h06vksharbor.corp.ad.sbi/cbops/prodetl:v1') }}"
+  imagePullPolicy: Always
+  mainApplicationFile: local:///app/DeploymentDev/Scripts/Difference.py
+  sparkVersion: 3.5.7
+  deps:
+    jars:
+    - local:///app/jars/spark-sql-kafka-0-10_2.12-3.5.7.jar
+    - local:///app/jars/spark-token-provider-kafka-0-10_2.12-3.5.7.jar
+    - local:///app/jars/kafka-clients-3.5.1.jar
+    pyFiles:
+    - local:///app/DeploymentDev/common.zip
+  arguments:
+    - "{{ ti.xcom_pull(task_ids='bootstrap_process.resolve_process_run_id',key='process_context')['process_run_id']}}"  
+  # restartPolicy:
+  #   type: OnFailure
+  #   onFailureRetries: 3  
+  #   onFailureRetryInterval: 10 # Value in seconds, e.g., 10s
+  #   onSubmissionFailureRetries: 5
+  #   onSubmissionFailureRetryInterval: 60           # Auto-retry if it fails!
+
+  # --- CRITICAL CONFIGURATIONS ---
+  sparkConf:
+    spark.dynamicAllocation.enabled: "true"
+    spark.dynamicAllocation.shuffleTracking.enabled: "true"
+    spark.dynamicAllocation.minExecutors: "1"
+    spark.dynamicAllocation.maxExecutors: "15"
+    spark.shuffle.service.enabled: "false"
+    spark.dynamicAllocation.executorIdleTimeout: "60s"
+
+  # --- DRIVER CONFIG ---
+  driver:
+    cores: 4
+    memory: "5g"
+    serviceAccount: spark-sa
+
+    # 1. Native Env Vars from ConfigMap 
+    # configMaps:
+    #   - name: properties
+    #     path: /mnt/config-maps
+
+    # envFrom:
+    #   - configMapRef:
+    #       name: properties
+
+
+    envSecretKeyRefs:
+      oracle_password:
+        name: oracle-properties
+        key: oracle_password
+
+      oracle_user:
+        name: oracle-properties
+        key: oracle_user
+
+      kafkalistener:
+        name: oracle-properties
+        key: kafkalistener
+
+      oracle_url:
+        name: oracle-properties
+        key: oracle_url
+
+      oracle_driver:
+        name: oracle-properties
+        key: oracle_driver
+
+      fincore_environment:
+        name: oracle-properties
+        key: fincore_environment
+
+  # --- EXECUTOR CONFIG ---
+  executor:
+    cores: 3
+    memory: "4g"
+    # Same config for executors
+    # configMaps:
+    # - name: properties
+    #   path: /mnt/config-maps
+    # envFrom:
+    # - configMapRef:
+    #     name: properties
+
+    envSecretKeyRefs:
+      oracle_password:
+        name: oracle-properties
+        key: oracle_password
+
+      oracle_user:
+        name: oracle-properties
+        key: oracle_user
+
+      kafkalistener:
+        name: oracle-properties
+        key: kafkalistener
+
+      oracle_url:
+        name: oracle-properties
+        key: oracle_url
+
+      oracle_driver:
+        name: oracle-properties
+        key: oracle_driver
+
+      fincore_environment:
+        name: oracle-properties
+        key: fincore_environment

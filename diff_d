@@ -1,0 +1,13 @@
+   spark = stage_wrapper(
+            dag=dag,
+            stage_id="run_Difference_spark",
+            operator_cls=SparkKubernetesOperator,
+            operator_kwargs={
+                "application_file": "difference_spark_operator.yaml",
+                "namespace": "{{ var.value.get('fincore_namespace', 'cbops') }}",
+                "kubernetes_conn_id": "k8s_conns",
+                "on_finish_action": "delete_pod",  # Deletes on both Success & Failure
+                "delete_on_termination": True,
+            },
+            stage_meta={"type": "SPARK", "label": "Difference Spark Job"},
+        )
